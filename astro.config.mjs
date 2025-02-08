@@ -21,14 +21,14 @@ import { remarkReadingTime } from "./src/plugins/remark-reading-time.mjs";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://fuwari.vercel.app/",
+  site: "https://lflg04.github.io",
   base: "/",
   trailingSlash: "always",
   integrations: [
     tailwind(
-        {
-          nesting: true,
-        }
+      {
+        nesting: true,
+      }
     ),
     swup({
       theme: false,
