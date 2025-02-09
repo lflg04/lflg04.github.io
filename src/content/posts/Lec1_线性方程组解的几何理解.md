@@ -1,6 +1,6 @@
 ---
 title: Lec1_线性方程组解的几何理解
-published: 2025-02-09
+published: 2024-08-25
 description: ''
 image: ''
 tags: [Linear Algebra]
