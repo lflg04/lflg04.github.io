@@ -1,6 +1,6 @@
 ---
 title: Lec3_矩阵乘法与逆矩阵
-published: 2025-02-09
+published: 2024-09-03
 description: ''
 image: ''
 tags: [Linear Algebra]
