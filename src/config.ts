@@ -42,11 +42,6 @@ export const navBarConfig: NavBarConfig = {
     LinkPreset.Home,
     LinkPreset.Archive,
     LinkPreset.About,
-    {
-      name: 'Bilibili',
-      url: 'https://space.bilibili.com/169826675?spm_id_from=333.1007.0.0',     // Internal links should not include the base path, as it is automatically added
-      external: true,                               // Show an external link icon and will open in a new tab
-    },
   ],
 }
 
@@ -66,6 +61,11 @@ export const profileConfig: ProfileConfig = {
       name: 'Steam',
       icon: 'fa6-brands:steam',
       url: 'https://steamcommunity.com/profiles/76561199360235414/',
+    },
+    {
+      name: 'Bilibili',
+      icon: 'fa6-brands:bilibili',
+      url: 'https://space.bilibili.com/169826675?spm_id_from=333.1007.0.0',
     },
 
   ],
