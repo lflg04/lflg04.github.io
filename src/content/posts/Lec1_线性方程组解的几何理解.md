@@ -5,7 +5,7 @@ description: ''
 image: ''
 tags: [Linear Algebra]
 category: 'Math'
-draft: false 
+draft: true 
 lang: ''
 ---
 
