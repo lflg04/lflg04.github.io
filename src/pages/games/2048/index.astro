@@ -1,0 +1,797 @@
+---
+import MainGridLayout from '../../../layouts/MainGridLayout.astro'
+---
+
+<MainGridLayout
+  title="2048"
+  description="Join the numbers and get to the 2048 tile."
+>
+  <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative min-h-32">
+    <div class="card-base z-10 px-6 md:px-9 py-6 relative w-full">
+
+      <div id="game-2048">
+
+        <!-- Title + instructions -->
+        <h1 class="text-2xl font-bold text-90 mb-2">2048</h1>
+        <p class="text-75 text-sm mb-6">
+          Join the numbers and get to the <strong>2048</strong> tile!
+        </p>
+
+        <!-- Score display -->
+        <div class="flex flex-wrap gap-4 mb-5">
+          <div class="card-base px-5 py-3 min-w-[6rem] text-center relative">
+            <div class="text-xs font-medium text-50 uppercase tracking-wide mb-1">Score</div>
+            <div class="score-number-wrap">
+              <span id="score-display" class="text-2xl font-bold text-90">0</span>
+              <span id="score-popup-layer" class="score-popup-layer" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="card-base px-5 py-3 min-w-[6rem] text-center">
+            <div class="text-xs font-medium text-50 uppercase tracking-wide mb-1">Best</div>
+            <div id="best-display" class="text-2xl font-bold text-90">0</div>
+          </div>
+        </div>
+
+        <!-- Status message (win / game over) -->
+        <div
+          id="game-message"
+          class="hidden text-sm font-bold mb-4 min-h-[1.5rem]"
+          role="status"
+          aria-live="polite"
+        ></div>
+
+        <!-- Control buttons -->
+        <div class="flex flex-wrap gap-3 mb-5">
+          <button type="button" id="btn-new-game" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium">
+            New Game
+          </button>
+          <button type="button" id="btn-undo" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium" disabled>
+            Undo
+          </button>
+        </div>
+
+        <!-- Game board -->
+        <div class="relative mb-5 mx-auto game-board-wrapper">
+          <div
+            id="board-container"
+            class="game-board rounded-lg bg-[var(--btn-regular-bg)]"
+            aria-label="2048 board"
+            role="grid"
+          >
+            <!-- Grid background cells -->
+            <div class="board-grid" aria-hidden="true">
+              {Array.from({ length: 16 }).map(() => (
+                <div class="grid-cell rounded-md bg-[var(--page-bg)] opacity-60"></div>
+              ))}
+            </div>
+
+            <!-- Tile layer (absolute positioned) -->
+            <div id="tile-layer" class="tile-layer"></div>
+          </div>
+        </div>
+
+        <!-- Directional buttons -->
+        <div class="mb-6 max-w-[min(100%,400px)] mx-auto">
+          <div class="flex flex-col items-center gap-1">
+            <button type="button" id="btn-up" class="btn-regular rounded-lg w-12 h-12 text-lg font-bold" aria-label="Move up">
+              ↑
+            </button>
+            <div class="flex gap-1">
+              <button type="button" id="btn-left" class="btn-regular rounded-lg w-12 h-12 text-lg font-bold" aria-label="Move left">
+                ←
+              </button>
+              <button type="button" id="btn-down" class="btn-regular rounded-lg w-12 h-12 text-lg font-bold" aria-label="Move down">
+                ↓
+              </button>
+              <button type="button" id="btn-right" class="btn-regular rounded-lg w-12 h-12 text-lg font-bold" aria-label="Move right">
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Continue button -->
+        <div id="continue-section" class="hidden mb-5 text-center">
+          <button type="button" id="btn-continue" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium">
+            Keep Playing
+          </button>
+        </div>
+
+        <!-- Back link -->
+        <div class="mt-8 pt-5 border-t border-dashed border-black/10 dark:border-white/[0.15]">
+          <a href="/projects/" class="text-sm text-50 hover:text-[var(--primary)] transition">
+            ← Back to Projects
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</MainGridLayout>
+
+<script>
+  import {
+    type Direction,
+    type GameState,
+    type MoveAnimationInfo,
+    type TileView,
+    addRandomTile,
+    cloneBoard,
+    continueAfterWin,
+    createNewGameState,
+    isGameOver,
+    moveBoard,
+    undoMove,
+    computeTileViews,
+  } from '../../../utils/game2048'
+
+  const LS_KEY = 'blog-2048-best-score'
+  const ANIM_LOCK_MS = 180
+  const BOARD_PX_REM = 0.5
+  const CELL_GAP_REM = 0.5
+  const PX_PER_REM = 16
+
+  // ── DOM helpers ──
+
+  function getEl(id: string): HTMLElement | null {
+    return document.getElementById(id)
+  }
+
+  function getBestScore(): number {
+    try {
+      if (typeof window === 'undefined') return 0
+      const v = localStorage.getItem(LS_KEY)
+      if (v !== null) {
+        const n = Number.parseInt(v, 10)
+        return Number.isFinite(n) && n >= 0 ? n : 0
+      }
+    } catch { /* ignore */ }
+    return 0
+  }
+
+  function setBestScore(score: number): void {
+    try {
+      if (typeof window === 'undefined') return
+      localStorage.setItem(LS_KEY, String(score))
+    } catch { /* ignore */ }
+  }
+
+  // ── State ──
+
+  let state: GameState
+  let tileViews: TileView[] = []
+  let nextTileId = 1
+  let isAnimating = false
+  let animLockTimer: ReturnType<typeof setTimeout> | null = null
+  let remPx = PX_PER_REM
+
+  // ── Tile helpers ──
+
+  function getTileColorClass(val: number): string {
+    const colors: Record<number, string> = {
+      2: 't2', 4: 't4', 8: 't8', 16: 't16', 32: 't32', 64: 't64',
+      128: 't128', 256: 't256', 512: 't512', 1024: 't1024', 2048: 't2048',
+    }
+    return colors[val] ?? 'tsuper'
+  }
+
+  function getTileFontSize(val: number): string {
+    if (val < 100) return 'fs-sm'
+    if (val < 1000) return 'fs-md'
+    if (val < 10000) return 'fs-lg'
+    return 'fs-xl'
+  }
+
+  // ── Board geometry ──
+
+  function getBoardMetrics(): { cellSize: number; gap: number; boardPx: number } | null {
+    const board = getEl('board-container')
+    if (!board) return null
+    const rect = board.getBoundingClientRect()
+    if (rect.width <= 0) return null
+    const gap = CELL_GAP_REM * remPx
+    const boardPx = BOARD_PX_REM * remPx
+    const cellSize = (rect.width - 2 * boardPx - 3 * gap) / 4
+    if (cellSize <= 0) return null
+    return { cellSize, gap, boardPx }
+  }
+
+  function tilePixelPos(
+    row: number, col: number,
+    m: { cellSize: number; gap: number; boardPx: number },
+  ): { x: number; y: number } {
+    return {
+      x: m.boardPx + col * (m.cellSize + m.gap),
+      y: m.boardPx + row * (m.cellSize + m.gap),
+    }
+  }
+
+  // ── Score popup ──
+
+  function showScorePopup(amount: number) {
+    if (amount <= 0) return
+    const layer = getEl('score-popup-layer')
+    if (!layer) return
+
+    const popup = document.createElement('span')
+    popup.className = 'score-popup'
+    popup.textContent = '+' + amount
+    layer.appendChild(popup)
+
+    let removed = false
+    const cleanup = () => {
+      if (removed) return
+      removed = true
+      popup.remove()
+    }
+    popup.addEventListener('animationend', cleanup, { once: true })
+    // Fallback: force-remove after 900ms even if animationend doesn't fire
+    setTimeout(cleanup, 900)
+  }
+
+  // ── Render: diff-based to preserve DOM identity for CSS transition ──
+
+  function renderTiles() {
+    const layer = getEl('tile-layer')
+    if (!layer) return
+
+    const metrics = getBoardMetrics()
+    if (!metrics) return
+
+    const existingById = new Map<string, HTMLElement>()
+    const existingPositions = layer.querySelectorAll('.tile-position')
+    for (const el of existingPositions) {
+      const id = (el as HTMLElement).dataset.tileId
+      if (id) existingById.set(id, el as HTMLElement)
+    }
+
+    const seen = new Set<string>()
+
+    for (const tile of tileViews) {
+      const idStr = String(tile.id)
+      seen.add(idStr)
+      const pos = tilePixelPos(tile.row, tile.col, metrics)
+      const colorClass = getTileColorClass(tile.value)
+      const fontSizeClass = getTileFontSize(tile.value)
+      const tx = 'translate(' + pos.x.toFixed(1) + 'px,' + pos.y.toFixed(1) + 'px)'
+      const sz = metrics.cellSize.toFixed(1) + 'px'
+
+      const existing = existingById.get(idStr)
+      if (existing) {
+        // Update existing tile: just change transform, size, and content
+        existing.style.transform = tx
+        existing.style.width = sz
+        existing.style.height = sz
+        const content = existing.firstElementChild as HTMLElement
+        if (content) {
+          // Only update if value or animation classes changed
+          const newCls = 'tile-content ' + colorClass + ' ' + fontSizeClass
+          if (content.className !== newCls) {
+            content.className = newCls
+            content.textContent = String(tile.value)
+          }
+        }
+      } else {
+        // Create new tile
+        const div = document.createElement('div')
+        div.className = 'tile-position'
+        div.dataset.tileId = idStr
+        div.style.transform = tx
+        div.style.width = sz
+        div.style.height = sz
+        div.innerHTML =
+          '<div class="tile-content ' + colorClass + ' ' + fontSizeClass + '">' +
+          tile.value +
+          '</div>'
+        layer.appendChild(div)
+      }
+    }
+
+    // Remove tiles that no longer exist
+    for (const [id, el] of existingById) {
+      if (!seen.has(id)) {
+        el.remove()
+      }
+    }
+  }
+
+  function renderScore() {
+    const scoreEl = getEl('score-display')
+    const bestEl = getEl('best-display')
+    if (scoreEl) scoreEl.textContent = String(state.score)
+    if (bestEl) bestEl.textContent = String(state.bestScore)
+  }
+
+  function renderMessage() {
+    const msgEl = getEl('game-message')
+    const continueSection = getEl('continue-section')
+    if (!msgEl) return
+
+    if (state.status === 'won') {
+      msgEl.classList.remove('hidden')
+      msgEl.textContent = '🎉 You Win! Congratulations on reaching 2048!'
+      msgEl.className =
+        'text-sm font-bold mb-4 min-h-[1.5rem] text-[oklch(0.65_0.18_60)] dark:text-[oklch(0.78_0.18_60)]'
+    } else if (state.status === 'game-over') {
+      msgEl.classList.remove('hidden')
+      msgEl.textContent = '💥 Game Over! No more moves available.'
+      msgEl.className =
+        'text-sm font-bold mb-4 min-h-[1.5rem] text-red-500 dark:text-red-400'
+    } else {
+      msgEl.classList.add('hidden')
+      msgEl.textContent = ''
+    }
+
+    if (continueSection) {
+      if (state.hasWon && !state.keepPlayingAfterWin) {
+        continueSection.classList.remove('hidden')
+      } else {
+        continueSection.classList.add('hidden')
+      }
+    }
+  }
+
+  function renderUndo() {
+    const btn = getEl('btn-undo') as HTMLButtonElement | null
+    if (btn) btn.disabled = state.history.length === 0
+  }
+
+  function renderAll() {
+    renderTiles()
+    renderScore()
+    renderMessage()
+    renderUndo()
+  }
+
+  // ── Animation markers ──
+
+  function applyAnimationMarkers(info: MoveAnimationInfo) {
+    const layer = getEl('tile-layer')
+    if (!layer) return
+
+    for (const id of info.newIds) {
+      const pos = layer.querySelector('[data-tile-id="' + id + '"]')
+      if (pos) {
+        const content = pos.firstElementChild as HTMLElement
+        if (content) content.classList.add('tile-new')
+      }
+    }
+    for (const id of info.mergedIds) {
+      const pos = layer.querySelector('[data-tile-id="' + id + '"]')
+      if (pos) {
+        const content = pos.firstElementChild as HTMLElement
+        if (content) content.classList.add('tile-merged')
+      }
+    }
+  }
+
+  function clearAnimationClasses() {
+    const layer = getEl('tile-layer')
+    if (!layer) return
+    for (const el of layer.querySelectorAll('.tile-content')) {
+      el.classList.remove('tile-new', 'tile-merged')
+    }
+  }
+
+  // ── Move handler ──
+
+  function handleMove(direction: Direction) {
+    if (isAnimating) return
+
+    const { board: boardAfterMove, scoreGained, moved } = moveBoard(state.board, direction)
+    if (!moved) return
+
+    isAnimating = true
+
+    const boardAfterSpawn = addRandomTile(boardAfterMove)
+
+    const { info, nextId: newNextId } = computeTileViews(
+      tileViews, boardAfterMove, boardAfterSpawn, direction, nextTileId, scoreGained,
+    )
+    nextTileId = newNextId
+    tileViews = info.tiles
+
+    const newScore = state.score + scoreGained
+    const newBestScore = Math.max(state.bestScore, newScore)
+    const justWon = !state.hasWon && boardAfterSpawn.some(r => r.some(v => v >= 2048))
+    const gameOver = isGameOver(boardAfterSpawn)
+
+    const snapshot = {
+      board: cloneBoard(state.board),
+      score: state.score,
+      hasWon: state.hasWon,
+      keepPlayingAfterWin: state.keepPlayingAfterWin,
+    }
+
+    let newStatus: GameState['status'] = 'playing'
+    if (gameOver) newStatus = 'game-over'
+    else if (justWon) newStatus = 'won'
+
+    state = {
+      board: boardAfterSpawn,
+      score: newScore,
+      bestScore: newBestScore,
+      status: newStatus,
+      hasWon: justWon || state.hasWon,
+      keepPlayingAfterWin: state.keepPlayingAfterWin,
+      history: [...state.history, snapshot].slice(-50),
+    }
+
+    if (state.bestScore > getBestScore()) setBestScore(state.bestScore)
+
+    renderAll()
+    applyAnimationMarkers(info)
+    showScorePopup(scoreGained)
+
+    if (animLockTimer) clearTimeout(animLockTimer)
+    animLockTimer = setTimeout(() => {
+      clearAnimationClasses()
+      isAnimating = false
+    }, ANIM_LOCK_MS)
+  }
+
+  // ── New Game / Undo / Continue ──
+
+  function buildTilesFromBoard(board: number[][]) {
+    tileViews = []
+    nextTileId = 1
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        if (board[r][c] !== 0) {
+          tileViews.push({ id: nextTileId++, value: board[r][c], row: r, col: c })
+        }
+      }
+    }
+  }
+
+  function handleNewGame() {
+    if (animLockTimer) clearTimeout(animLockTimer)
+    isAnimating = false
+
+    const best = getBestScore()
+    state = createNewGameState(best)
+    buildTilesFromBoard(state.board)
+    renderAll()
+
+    // Initial pop-in
+    const layer = getEl('tile-layer')
+    if (layer) {
+      for (const c of layer.querySelectorAll('.tile-content')) c.classList.add('tile-new')
+    }
+    setTimeout(() => {
+      const l = getEl('tile-layer')
+      if (l) for (const c of l.querySelectorAll('.tile-content')) c.classList.remove('tile-new')
+    }, ANIM_LOCK_MS)
+  }
+
+  function handleUndo() {
+    if (animLockTimer) clearTimeout(animLockTimer)
+    isAnimating = false
+
+    const newState = undoMove(state)
+    if (!newState) return
+    state = newState
+    buildTilesFromBoard(state.board)
+    renderAll()
+  }
+
+  function handleContinue() {
+    const newState = continueAfterWin(state)
+    if (!newState) return
+    state = newState
+    renderAll()
+  }
+
+  // ── Keyboard ──
+
+  function handleKeydown(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+    let direction: Direction | null = null
+    switch (e.key) {
+      case 'ArrowUp': case 'w': case 'W': direction = 'up'; break
+      case 'ArrowDown': case 's': case 'S': direction = 'down'; break
+      case 'ArrowLeft': case 'a': case 'A': direction = 'left'; break
+      case 'ArrowRight': case 'd': case 'D': direction = 'right'; break
+    }
+    if (direction) { e.preventDefault(); handleMove(direction) }
+  }
+
+  // ── Touch ──
+
+  let touchStartX = 0, touchStartY = 0, touchStarted = false
+  const SWIPE_THRESHOLD = 30
+
+  function handleTouchStart(e: TouchEvent) {
+    if (e.touches.length !== 1) return
+    touchStartX = e.touches[0].clientX
+    touchStartY = e.touches[0].clientY
+    touchStarted = true
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    if (!touchStarted) return
+    touchStarted = false
+    const touch = e.changedTouches[0]
+    if (!touch) return
+    const dx = touch.clientX - touchStartX, dy = touch.clientY - touchStartY
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_THRESHOLD) return
+    if (Math.abs(dx) > Math.abs(dy)) {
+      handleMove(dx > 0 ? 'right' : 'left')
+    } else {
+      handleMove(dy > 0 ? 'down' : 'up')
+    }
+  }
+
+  // ── Buttons ──
+
+  function setupButtons() {
+    getEl('btn-up')?.addEventListener('click', () => handleMove('up'))
+    getEl('btn-down')?.addEventListener('click', () => handleMove('down'))
+    getEl('btn-left')?.addEventListener('click', () => handleMove('left'))
+    getEl('btn-right')?.addEventListener('click', () => handleMove('right'))
+    getEl('btn-new-game')?.addEventListener('click', handleNewGame)
+    getEl('btn-undo')?.addEventListener('click', handleUndo)
+    getEl('btn-continue')?.addEventListener('click', handleContinue)
+  }
+
+  // ── Resize ──
+
+  let resizeObserver: ResizeObserver | null = null
+
+  function repositionTiles() {
+    const layer = getEl('tile-layer')
+    if (!layer) return
+    const m = getBoardMetrics()
+    if (!m) return
+    for (const el of layer.querySelectorAll('.tile-position')) {
+      const id = Number((el as HTMLElement).dataset.tileId)
+      const tv = tileViews.find(t => t.id === id)
+      if (!tv) continue
+      const p = tilePixelPos(tv.row, tv.col, m)
+      ;(el as HTMLElement).style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) + 'px)'
+      ;(el as HTMLElement).style.width = m.cellSize.toFixed(1) + 'px'
+      ;(el as HTMLElement).style.height = m.cellSize.toFixed(1) + 'px'
+    }
+  }
+
+  function setupResizeObserver() {
+    const board = getEl('board-container')
+    if (!board) return
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => repositionTiles())
+    resizeObserver.observe(board)
+  }
+
+  // ── Init / Teardown ──
+
+  function init() {
+    teardown()
+    remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || PX_PER_REM
+
+    const best = getBestScore()
+    state = createNewGameState(best)
+    buildTilesFromBoard(state.board)
+
+    document.addEventListener('keydown', handleKeydown)
+    const bc = getEl('board-container')
+    if (bc) {
+      bc.addEventListener('touchstart', handleTouchStart, { passive: false })
+      bc.addEventListener('touchend', handleTouchEnd, { passive: false })
+      bc.addEventListener('touchmove', (e: TouchEvent) => e.preventDefault(), { passive: false })
+    }
+    setupButtons()
+    setupResizeObserver()
+
+    // Defer first render until layout is complete
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        renderAll()
+        // Initial pop-in
+        const layer = getEl('tile-layer')
+        if (layer) for (const c of layer.querySelectorAll('.tile-content')) c.classList.add('tile-new')
+        setTimeout(() => {
+          const l = getEl('tile-layer')
+          if (l) for (const c of l.querySelectorAll('.tile-content')) c.classList.remove('tile-new')
+        }, ANIM_LOCK_MS)
+      })
+    })
+  }
+
+  function teardown() {
+    document.removeEventListener('keydown', handleKeydown)
+    const bc = getEl('board-container')
+    if (bc) {
+      bc.removeEventListener('touchstart', handleTouchStart)
+      bc.removeEventListener('touchend', handleTouchEnd)
+    }
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    if (animLockTimer) { clearTimeout(animLockTimer); animLockTimer = null }
+    isAnimating = false
+  }
+
+  if (typeof window !== 'undefined') {
+    if (window.swup?.hooks) {
+      window.swup.hooks.on('page:view', init)
+      window.swup.hooks.on('content:replace', teardown)
+    }
+    init()
+  }
+</script>
+
+<style is:global>
+  /* ── Board layout ── */
+
+  #game-2048 .game-board-wrapper {
+    max-width: min(100%, 400px);
+  }
+
+  #game-2048 .game-board {
+    --board-px: 0.5rem;
+    --cell-gap: 0.5rem;
+    position: relative;
+    width: 100%;
+    padding: var(--board-px);
+    aspect-ratio: 1;
+  }
+
+  #game-2048 .board-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--cell-gap);
+    width: 100%;
+    height: 100%;
+  }
+
+  #game-2048 .grid-cell {
+    aspect-ratio: 1;
+  }
+
+  /* ── Tile layer ── */
+
+  #game-2048 .tile-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  #game-2048 .tile-position {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 150ms ease-in-out;
+    will-change: transform;
+  }
+
+  #game-2048 .tile-content {
+    width: 100%;
+    height: 100%;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
+
+  /* ── Tile colors ── */
+  #game-2048 .t2    { background: oklch(0.93 0.02 var(--hue)); color: oklch(0.35 0.03 var(--hue)); }
+  #game-2048 .t4    { background: oklch(0.90 0.03 var(--hue)); color: oklch(0.35 0.03 var(--hue)); }
+  #game-2048 .t8    { background: oklch(0.78 0.12 var(--hue)); color: white; }
+  #game-2048 .t16   { background: oklch(0.72 0.14 var(--hue)); color: white; }
+  #game-2048 .t32   { background: oklch(0.66 0.16 var(--hue)); color: white; }
+  #game-2048 .t64   { background: oklch(0.60 0.18 var(--hue)); color: white; }
+  #game-2048 .t128  { background: oklch(0.55 0.16 var(--hue)); color: white; }
+  #game-2048 .t256  { background: oklch(0.52 0.14 var(--hue)); color: white; }
+  #game-2048 .t512  { background: oklch(0.48 0.14 var(--hue)); color: white; }
+  #game-2048 .t1024 { background: oklch(0.44 0.14 var(--hue)); color: white; }
+  #game-2048 .t2048 { background: oklch(0.75 0.18 60); color: white; }
+  #game-2048 .tsuper { background: oklch(0.40 0.12 var(--hue)); color: white; }
+
+  :root.dark #game-2048 .t2    { background: oklch(0.35 0.03 var(--hue)); color: oklch(0.9 0.02 var(--hue)); }
+  :root.dark #game-2048 .t4    { background: oklch(0.40 0.04 var(--hue)); color: oklch(0.9 0.02 var(--hue)); }
+  :root.dark #game-2048 .t8    { background: oklch(0.55 0.12 var(--hue)); color: white; }
+  :root.dark #game-2048 .t16   { background: oklch(0.60 0.13 var(--hue)); color: white; }
+  :root.dark #game-2048 .t32   { background: oklch(0.65 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t64   { background: oklch(0.70 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t128  { background: oklch(0.58 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t256  { background: oklch(0.52 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t512  { background: oklch(0.48 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t1024 { background: oklch(0.44 0.14 var(--hue)); color: white; }
+  :root.dark #game-2048 .t2048 { background: oklch(0.75 0.18 60); color: white; }
+  :root.dark #game-2048 .tsuper { background: oklch(0.40 0.12 var(--hue)); color: white; }
+
+  /* ── Tile font sizes ── */
+  #game-2048 .fs-sm { font-size: 1.5rem; }
+  #game-2048 .fs-md { font-size: 1.25rem; }
+  #game-2048 .fs-lg { font-size: 1.125rem; }
+  #game-2048 .fs-xl { font-size: 0.875rem; }
+
+  /* ── Animations ── */
+
+  @keyframes tile-pop-in {
+    from { opacity: 0; transform: scale(0.75); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes tile-merge-pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+
+  #game-2048 .tile-new {
+    animation: tile-pop-in 160ms ease-out;
+  }
+
+  #game-2048 .tile-merged {
+    animation: tile-merge-pop 200ms ease-out;
+    z-index: 2;
+  }
+
+  /* ── Score popup ── */
+
+  #game-2048 .score-number-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #game-2048 .score-popup-layer {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  @keyframes score-pop-fade {
+    0%   { opacity: 0; transform: translate(-50%, -20%) scale(0.85); }
+    18%  { opacity: 1; transform: translate(-50%, -65%) scale(1.05); }
+    100% { opacity: 0; transform: translate(-50%, -155%) scale(1); }
+  }
+
+  #game-2048 .score-popup {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    font-weight: 800;
+    font-size: 1rem;
+    white-space: nowrap;
+    pointer-events: none;
+    color: oklch(0.65 0.18 60);
+    animation: score-pop-fade 700ms ease-out forwards;
+  }
+
+  :root.dark #game-2048 .score-popup {
+    color: oklch(0.78 0.18 60);
+  }
+
+  /* ── Accessibility ── */
+
+  #game-2048 button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  #game-2048 button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #game-2048 .tile-position { transition: none !important; }
+    #game-2048 .tile-content  { animation: none !important; }
+    #game-2048 .score-popup   { animation: none !important; }
+  }
+</style>

@@ -1,12 +1,12 @@
 <script lang="ts">
-import { onMount } from 'svelte'
-import { i18n } from '@i18n/translation'
 import I18nKey from '@i18n/i18nKey'
-import { getDefaultHue, getHue, setHue } from '@utils/setting-utils'
+import { i18n } from '@i18n/translation'
 import Icon from '@iconify/svelte'
+import { getDefaultHue, getHue, setHue } from '@utils/setting-utils'
+import { onMount } from 'svelte'
 
-let hue = 250         // safe SSR default
-let defaultHue = 250   // safe SSR default
+let hue = 250 // safe SSR default
+let defaultHue = 250 // safe SSR default
 
 onMount(() => {
   defaultHue = getDefaultHue()

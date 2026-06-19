@@ -124,7 +124,7 @@ function solveRecursive(operands: SolverOperand[]): string | null {
  */
 export function solve24(numbers: number[]): string | null {
   if (numbers.length !== 4) return null
-  const operands: SolverOperand[] = numbers.map((n) => ({
+  const operands: SolverOperand[] = numbers.map(n => ({
     value: fromNumber(n),
     expr: `${n}`,
   }))
@@ -139,8 +139,9 @@ export function solve24(numbers: number[]): string | null {
 export function generatePuzzle(): number[] {
   const MAX_ATTEMPTS = 500
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const nums = Array.from({ length: 4 }, () =>
-      Math.floor(Math.random() * 9) + 1,
+    const nums = Array.from(
+      { length: 4 },
+      () => Math.floor(Math.random() * 9) + 1,
     )
     if (solve24(nums) !== null) {
       return nums

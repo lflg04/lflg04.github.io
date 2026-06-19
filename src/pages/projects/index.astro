@@ -1,7 +1,7 @@
 ---
-import MainGridLayout from '../../layouts/MainGridLayout.astro'
-import ProjectSection from '../../components/ProjectSection.astro'
 import { Icon } from 'astro-icon/components'
+import ProjectSection from '../../components/ProjectSection.astro'
+import MainGridLayout from '../../layouts/MainGridLayout.astro'
 
 interface ProjectItem {
   title: string
@@ -24,13 +24,16 @@ const projectSections: ProjectSectionData[] = [
     items: [
       {
         title: '2048',
-        description: 'Slide numbered tiles on a grid to combine them and create the 2048 tile.',
-        status: 'coming-soon',
+        description:
+          'Slide numbered tiles on a grid to combine them and create the 2048 tile.',
+        status: 'available',
+        href: '/games/2048/',
         icon: 'material-symbols:grid-view-outline-rounded',
       },
       {
         title: '24 点',
-        description: 'Use four numbers and basic arithmetic operations to make 24.',
+        description:
+          'Use four numbers and basic arithmetic operations to make 24.',
         status: 'available',
         href: '/games/make-24/',
         icon: 'material-symbols:calculate-outline-rounded',
