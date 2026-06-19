@@ -1,0 +1,388 @@
+---
+import MainGridLayout from '../../../layouts/MainGridLayout.astro'
+import { generatePuzzle, solve24 } from '../../../utils/make24Solver'
+
+const initialNumbers = generatePuzzle()
+const initialSolution = solve24(initialNumbers)
+---
+
+<MainGridLayout
+  title="Make 24"
+  description="Use all four numbers exactly once, with + − × ÷ and parentheses, to make 24."
+>
+  <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative min-h-32">
+    <div class="card-base z-10 px-6 md:px-9 py-6 relative w-full">
+
+      <div id="make-24-game">
+
+        <h1 class="text-2xl font-bold text-90 mb-2">Make 24</h1>
+        <p class="text-75 text-sm mb-6">
+          Use all four numbers exactly once, with + − × ÷ and parentheses, to make 24.
+        </p>
+
+        <!-- Status message -->
+        <div
+          id="game-message"
+          class="text-sm font-medium text-[var(--primary)] mb-4 min-h-[1.25rem]"
+        >
+          Loading...
+        </div>
+
+        <!-- Number cards -->
+        <div id="game-numbers" class="flex flex-wrap gap-3 mb-5"></div>
+
+        <!-- Operator buttons -->
+        <div id="game-operators" class="flex flex-wrap gap-3 mb-5"></div>
+
+        <!-- Control buttons -->
+        <div id="game-controls" class="flex flex-wrap gap-3 mb-5"></div>
+
+        <!-- Solution area -->
+        <div id="game-solution" class="hidden mt-4 p-4 rounded-lg bg-[var(--btn-regular-bg)]">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium text-50 uppercase tracking-wide mb-1">Solution</p>
+              <p id="game-solution-text" class="text-90 font-bold"></p>
+            </div>
+            <button type="button" id="game-solution-close"
+              class="btn-plain rounded-lg w-8 h-8 shrink-0 text-50 hover:text-90">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Back link -->
+        <div class="mt-8 pt-5 border-t border-dashed border-black/10 dark:border-white/[0.15]">
+          <a href="/projects/" class="text-sm text-50 hover:text-[var(--primary)] transition">
+            ← Back to Projects
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Game script: placed inside MainGridLayout so it renders within <body> -->
+  <script is:inline define:vars={{ initialNumbers, initialSolution }}>
+    (function() {
+      // ── Fraction helpers ──
+      function gcd(a, b) {
+        a = Math.abs(a); b = Math.abs(b)
+        while (b) { var t = b; b = a % b; a = t }
+        return a || 1
+      }
+      function simplify(f) {
+        if (f.d === 0) throw new Error('zero denominator')
+        var n = f.n, d = f.d
+        if (d < 0) { n = -n; d = -d }
+        var g = gcd(n, d)
+        return { n: n / g, d: d / g }
+      }
+      function frac(n, d) { return simplify({ n: n, d: d || 1 }) }
+      function addF(a, b) { return frac(a.n * b.d + b.n * a.d, a.d * b.d) }
+      function subF(a, b) { return frac(a.n * b.d - b.n * a.d, a.d * b.d) }
+      function mulF(a, b) { return frac(a.n * b.n, a.d * b.d) }
+      function divF(a, b) { return b.n === 0 ? null : frac(a.n * b.d, a.d * b.n) }
+      function is24(f) { var s = simplify(f); return s.n === 24 * s.d }
+      function fracStr(f) { var s = simplify(f); return s.d === 1 ? '' + s.n : s.n + '/' + s.d }
+
+      // ── Init ──
+      var container = document.getElementById('make-24-game')
+      if (!container) return
+
+      var msgEl = document.getElementById('game-message')
+      var numbersEl = document.getElementById('game-numbers')
+      var operatorsEl = document.getElementById('game-operators')
+      var controlsEl = document.getElementById('game-controls')
+      var solutionEl = document.getElementById('game-solution')
+      var solutionTextEl = document.getElementById('game-solution-text')
+      var solutionCloseEl = document.getElementById('game-solution-close')
+
+      function initOperands(nums) {
+        return nums.map(function(n, i) {
+          return { id: 'n' + i + '-' + Date.now(), value: frac(n, 1), expr: '' + n }
+        })
+      }
+
+      var state = {
+        operands: initOperands(initialNumbers),
+        selectedFirstId: null,
+        selectedOperator: null,
+        history: [],
+        status: 'playing',
+        solution: initialSolution,
+        initialNumbers: initialNumbers
+      }
+
+      // ── Render ──
+      function render() {
+        var opds = state.operands
+        var selId = state.selectedFirstId
+        var selOp = state.selectedOperator
+        var hist = state.history
+        var status = state.status
+
+        // Message
+        if (status === 'won') {
+          msgEl.textContent = '🎉 Correct! You made 24!'
+          msgEl.className = 'text-sm font-bold text-[var(--primary)] mb-4 min-h-[1.25rem]'
+        } else if (opds.length === 1) {
+          var val = fracStr(opds[0].value)
+          msgEl.textContent = 'Result is ' + val + ', not 24. Use Undo to try again.'
+          msgEl.className = 'text-sm font-medium text-red-500 dark:text-red-400 mb-4 min-h-[1.25rem]'
+        } else if (selId && selOp) {
+          msgEl.textContent = 'Select the second number'
+          msgEl.className = 'text-sm font-medium text-[var(--primary)] mb-4 min-h-[1.25rem]'
+        } else if (selId) {
+          msgEl.textContent = 'Select an operator'
+          msgEl.className = 'text-sm font-medium text-[var(--primary)] mb-4 min-h-[1.25rem]'
+        } else {
+          msgEl.textContent = 'Select the first number'
+          msgEl.className = 'text-sm font-medium text-[var(--primary)] mb-4 min-h-[1.25rem]'
+        }
+
+        // Number cards
+        numbersEl.innerHTML = opds.map(function(op) {
+          var sel = op.id === selId
+          var cls = sel
+            ? 'card-base px-5 py-3 text-lg font-bold cursor-pointer transition border-2 border-[var(--primary)] bg-[var(--btn-card-bg-active)] text-90 min-w-[4rem] text-center'
+            : 'card-base px-5 py-3 text-lg font-bold cursor-pointer transition border-2 border-transparent hover:bg-[var(--btn-card-bg-hover)] active:bg-[var(--btn-card-bg-active)] text-90 min-w-[4rem] text-center'
+          // Show "value = expression" for computed results, plain number for initial cards
+          var label = op.expr
+          if (/[+−×÷]/.test(op.expr)) {
+            label = fracStr(op.value) + ' = ' + op.expr
+          }
+          return '<button type="button" data-opid="' + op.id + '" class="' + cls + '">' + label + '</button>'
+        }).join('')
+
+        var numBtns = numbersEl.querySelectorAll('button[data-opid]')
+        for (var ni = 0; ni < numBtns.length; ni++) {
+          numBtns[ni].addEventListener('click', (function(id) {
+            return function() { handleNumberClick(id) }
+          })(numBtns[ni].dataset.opid))
+        }
+
+        // Operator buttons
+        var ops = ['+', '−', '×', '÷']
+        var opDisabled = status === 'won' || opds.length <= 1 || !selId
+        operatorsEl.innerHTML = ops.map(function(op) {
+          var isSel = op === selOp
+          if (opDisabled && !isSel) {
+            return '<button type="button" disabled class="btn-regular rounded-lg w-12 h-12 text-lg font-bold opacity-30 cursor-not-allowed">' + op + '</button>'
+          }
+          var cls = isSel
+            ? 'btn-regular rounded-lg w-12 h-12 text-lg font-bold border-2 border-[var(--primary)] bg-[var(--btn-card-bg-active)]'
+            : 'btn-regular rounded-lg w-12 h-12 text-lg font-bold hover:bg-[var(--btn-card-bg-hover)] active:bg-[var(--btn-card-bg-active)]'
+          return '<button type="button" data-op="' + op + '" class="' + cls + '">' + op + '</button>'
+        }).join('')
+
+        var opBtns = operatorsEl.querySelectorAll('button[data-op]:not([disabled])')
+        for (var oi = 0; oi < opBtns.length; oi++) {
+          opBtns[oi].addEventListener('click', (function(op) {
+            return function() { handleOperatorClick(op) }
+          })(opBtns[oi].dataset.op))
+        }
+
+        // Control buttons
+        var canUndo = hist.length > 0 && status !== 'won'
+        var undoStyle = canUndo ? '' : 'style="opacity:0.35;cursor:not-allowed"'
+        var undoDisabled = canUndo ? '' : 'disabled'
+        controlsEl.innerHTML =
+          '<button type="button" id="btn-undo" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium" ' + undoDisabled + ' ' + undoStyle + '>Undo</button>' +
+          '<button type="button" id="btn-restart" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium">Restart</button>' +
+          '<button type="button" id="btn-solution" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium">Show Solution</button>' +
+          '<button type="button" id="btn-next" class="btn-regular rounded-lg px-4 h-9 text-sm font-medium" style="background:var(--primary);color:white">Next Puzzle</button>'
+
+        document.getElementById('btn-undo').addEventListener('click', handleUndo)
+        document.getElementById('btn-restart').addEventListener('click', handleRestart)
+        document.getElementById('btn-solution').addEventListener('click', handleShowSolution)
+        document.getElementById('btn-next').addEventListener('click', handleNextPuzzle)
+      }
+
+      // ── Handlers ──
+      function handleNumberClick(id) {
+        if (state.status === 'won') return
+        if (state.selectedFirstId === id) {
+          state.selectedFirstId = null
+          state.selectedOperator = null
+          render()
+          return
+        }
+        if (!state.selectedFirstId) {
+          state.selectedFirstId = id
+          render()
+          return
+        }
+        if (!state.selectedOperator) {
+          state.selectedFirstId = id
+          render()
+          return
+        }
+
+        var a = null, b = null
+        for (var i = 0; i < state.operands.length; i++) {
+          if (state.operands[i].id === state.selectedFirstId) a = state.operands[i]
+          if (state.operands[i].id === id) b = state.operands[i]
+        }
+        if (!a || !b) return
+
+        state.history.push(state.operands.slice())
+
+        var result = compute(a, b, state.selectedOperator)
+        if (!result) {
+          state.selectedFirstId = null
+          state.selectedOperator = null
+          render()
+          return
+        }
+
+        state.operands = state.operands.filter(function(op) { return op.id !== a.id && op.id !== b.id })
+        state.operands.push(result)
+        state.selectedFirstId = null
+        state.selectedOperator = null
+
+        if (state.operands.length === 1 && is24(state.operands[0].value)) {
+          state.status = 'won'
+        }
+        render()
+      }
+
+      function handleOperatorClick(op) {
+        if (state.status === 'won') return
+        if (!state.selectedFirstId) return
+        if (state.selectedOperator === op) {
+          state.selectedOperator = null
+          render()
+          return
+        }
+        state.selectedOperator = op
+        render()
+      }
+
+      function compute(a, b, op) {
+        var av = a.value, bv = b.value
+        var result = null
+        var aExpr = a.expr, bExpr = b.expr
+
+        if (op === '+') { result = addF(av, bv) }
+        else if (op === '−') { result = subF(av, bv) }
+        else if (op === '×') {
+          result = mulF(av, bv)
+          if (/[+−]/.test(a.expr)) aExpr = '(' + a.expr + ')'
+          if (/[+−]/.test(b.expr)) bExpr = '(' + b.expr + ')'
+        }
+        else if (op === '÷') {
+          result = divF(av, bv)
+          if (result && /[+−]/.test(a.expr)) aExpr = '(' + a.expr + ')'
+          if (result && /[+−×÷]/.test(b.expr)) bExpr = '(' + b.expr + ')'
+        }
+
+        if (!result) return null
+        return {
+          id: 'r' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          value: result,
+          expr: aExpr + ' ' + op + ' ' + bExpr
+        }
+      }
+
+      function handleUndo() {
+        if (state.history.length === 0 || state.status === 'won') return
+        state.operands = state.history.pop()
+        state.selectedFirstId = null
+        state.selectedOperator = null
+        render()
+      }
+
+      function handleRestart() {
+        state.operands = initOperands(state.initialNumbers)
+        state.selectedFirstId = null
+        state.selectedOperator = null
+        state.history = []
+        state.status = 'playing'
+        hideSolution()
+        render()
+      }
+
+      function handleShowSolution() {
+        if (solutionEl) solutionEl.classList.remove('hidden')
+        if (solutionTextEl) solutionTextEl.textContent = state.solution || 'No solution found.'
+      }
+
+      function hideSolution() {
+        if (solutionEl) solutionEl.classList.add('hidden')
+      }
+
+      if (solutionCloseEl) solutionCloseEl.addEventListener('click', hideSolution)
+
+      // ── Client-side solver ──
+      function solve24Client(numbers) {
+        function needParens(e) { return /[+−×÷]/.test(e) ? '(' + e + ')' : e }
+        function solve(ops) {
+          if (ops.length === 1) return is24(ops[0].value) ? ops[0].expr : null
+          for (var i = 0; i < ops.length; i++) {
+            for (var j = i + 1; j < ops.length; j++) {
+              var remaining = ops.filter(function(_, idx) { return idx !== i && idx !== j })
+              var a = ops[i], b = ops[j]
+              var combos = [
+                { val: addF(a.value, b.value), e: a.expr + ' + ' + b.expr },
+                { val: subF(a.value, b.value), e: a.expr + ' − ' + b.expr },
+                { val: subF(b.value, a.value), e: b.expr + ' − ' + a.expr },
+                { val: mulF(a.value, b.value), e: needParens(a.expr) + ' × ' + needParens(b.expr) }
+              ]
+              var d1 = divF(a.value, b.value)
+              var d2 = divF(b.value, a.value)
+              if (d1) combos.push({ val: d1, e: needParens(a.expr) + ' ÷ ' + needParens(b.expr) })
+              if (d2) combos.push({ val: d2, e: needParens(b.expr) + ' ÷ ' + needParens(a.expr) })
+              for (var k = 0; k < combos.length; k++) {
+                var ans = solve(remaining.concat([{ value: combos[k].val, expr: combos[k].e }]))
+                if (ans) return ans
+              }
+            }
+          }
+          return null
+        }
+        return solve(numbers.map(function(n) { return { value: frac(n, 1), expr: '' + n } }))
+      }
+
+      function handleNextPuzzle() {
+        var nums, sol
+        for (var i = 0; i < 500; i++) {
+          nums = [rand1to9(), rand1to9(), rand1to9(), rand1to9()]
+          sol = solve24Client(nums)
+          if (sol) break
+        }
+        if (!sol) { nums = [1, 2, 3, 4]; sol = '4 × (3 + 1 + 2)' }
+        state.initialNumbers = nums
+        state.solution = sol
+        state.operands = initOperands(nums)
+        state.selectedFirstId = null
+        state.selectedOperator = null
+        state.history = []
+        state.status = 'playing'
+        hideSolution()
+        render()
+      }
+
+      function rand1to9() { return Math.floor(Math.random() * 9) + 1 }
+
+      // ── Boot ──
+      render()
+    })()
+  </script>
+
+  <style>
+    #make-24-game button[data-opid] {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #make-24-game button[data-opid]:focus-visible,
+    #make-24-game button[data-op]:focus-visible,
+    #make-24-game .btn-regular:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+  </style>
+</MainGridLayout>

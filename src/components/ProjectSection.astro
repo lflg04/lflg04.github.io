@@ -1,0 +1,38 @@
+---
+import { Icon } from 'astro-icon/components'
+
+interface Props {
+  category: string
+  description: string
+}
+
+const { category, description } = Astro.props
+---
+
+<details class="group card-base overflow-hidden">
+  <summary
+    class="flex items-center justify-between p-6 cursor-pointer
+           hover:bg-[var(--btn-card-bg-hover)]
+           transition
+           [&::marker]:content-none [&::-webkit-details-marker]:hidden"
+  >
+    <div class="relative pl-4">
+      <span
+        class="absolute left-0 top-1 bottom-1 w-1 rounded-md bg-[var(--primary)]"
+      ></span>
+      <h2 class="text-xl font-bold text-90">{category}</h2>
+      <p class="text-75 text-sm mt-1">{description}</p>
+    </div>
+    <div
+      class="shrink-0 ml-4 transition-transform duration-200 group-open:rotate-90"
+    >
+      <Icon
+        name="material-symbols:chevron-right-rounded"
+        class="text-[1.5rem] text-[var(--primary)]"
+      />
+    </div>
+  </summary>
+  <div class="px-6 pb-6">
+    <slot />
+  </div>
+</details>
